@@ -1,0 +1,110 @@
+{
+  "name": "OctoSky Weather Pipeline",
+  "nodes": [
+    {
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.cron",
+      "position": [250, 300],
+      "parameters": {
+        "triggerTimes": {
+          "item": [{ "mode": "everyX", "value": 30, "unit": "minutes" }]
+        }
+      },
+      "notes": "Fires every 30 minutes."
+    },
+    {
+      "name": "Execute Hunter",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [470, 300],
+      "parameters": {
+        "command": "node /opt/octosky/hunter.js",
+        "timeout": 60000
+      },
+      "notes": "Runs the headless Puppeteer scraper. Captures stdout."
+    },
+    {
+      "name": "Node A — Parse stdout",
+      "type": "n8n-nodes-base.code",
+      "position": [690, 300],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "/* SEE: n8n-workflow/node-a-parse-stdout.js */"
+      },
+      "notes": "Parses the raw JSON string from Hunter into n8n items."
+    },
+    {
+      "name": "Node B — Build AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [910, 300],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "/* SEE: n8n-workflow/node-b-ai-prompt.js */"
+      },
+      "notes": "Constructs a batch prompt for Ollama Phi-3."
+    },
+    {
+      "name": "Ollama Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1130, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/generate",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "={{ $json.ollamaPayload }}", "value": "" }
+          ]
+        },
+        "options": { "timeout": 120000 }
+      },
+      "notes": "Sends the prompt to local Ollama. Body = {{ $json.ollamaPayload }}."
+    },
+    {
+      "name": "Node C — Merge Data + AI",
+      "type": "n8n-nodes-base.code",
+      "position": [1350, 300],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "/* SEE: n8n-workflow/node-c-merge.js */"
+      },
+      "notes": "Merges weather + AI suggestions. Outputs fileContent & dbRecord."
+    },
+    {
+      "name": "Write weather.json",
+      "type": "n8n-nodes-base.readWriteFile",
+      "position": [1570, 200],
+      "parameters": {
+        "operation": "write",
+        "fileName": "/var/www/html/weather.json",
+        "fileContent": "={{ $json.fileContent }}"
+      },
+      "notes": "Overwrites the static JSON served by Nginx."
+    },
+    {
+      "name": "Insert to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1570, 400],
+      "parameters": {
+        "operation": "insert",
+        "schema": "weather",
+        "table": "weather_logs",
+        "columns": "scraped_at, source_url, cities, ai_suggestions, metadata",
+        "returnFields": "id"
+      },
+      "notes": "Archives the record. Credential = octosky_user."
+    }
+  ],
+  "connections": {
+    "Cron Trigger":          { "main": [[{ "node": "Execute Hunter",          "type": "main", "index": 0 }]] },
+    "Execute Hunter":        { "main": [[{ "node": "Node A — Parse stdout",   "type": "main", "index": 0 }]] },
+    "Node A — Parse stdout": { "main": [[{ "node": "Node B — Build AI Prompt","type": "main", "index": 0 }]] },
+    "Node B — Build AI Prompt": { "main": [[{ "node": "Ollama Request",       "type": "main", "index": 0 }]] },
+    "Ollama Request":        { "main": [[{ "node": "Node C — Merge Data + AI","type": "main", "index": 0 }]] },
+    "Node C — Merge Data + AI": { "main": [[
+      { "node": "Write weather.json",   "type": "main", "index": 0 },
+      { "node": "Insert to PostgreSQL", "type": "main", "index": 0 }
+    ]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "_comment": "Reference topology — paste code from the .js files into each Code node."
+}

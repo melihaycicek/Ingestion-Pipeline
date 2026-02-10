@@ -1,0 +1,17 @@
+{
+  "name": "octosky-hunter",
+  "version": "1.0.0",
+  "description": "OctoSky weather scraper — outputs raw JSON to stdout",
+  "main": "hunter.js",
+  "scripts": {
+    "scrape": "node hunter.js",
+    "test": "node hunter.js | jq ."
+  },
+  "dependencies": {
+    "puppeteer": "^23.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "private": true
+}
